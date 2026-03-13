@@ -1,0 +1,46 @@
+version: '3.8'
+
+services:
+  # OpenSERP Brave Adapter - 将 OpenSERP 转换为 Brave API 格式
+  openserp-adapter:
+    build: .
+    ports:
+      - "8765:8765"
+    environment:
+      - PORT=8765
+      - OPENSERP_BASE_URL=http://openserp:8080
+      - OPENSERP_API_KEY=${OPENSERP_API_KEY:-}
+      - BRAVE_API_KEY=${BRAVE_API_KEY:-dummy-key}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - REQUEST_TIMEOUT=${REQUEST_TIMEOUT:-10000}
+    depends_on:
+      - openserp
+    networks:
+      - openserp-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8765/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # OpenSERP 服务（示例配置，根据实际情况调整）
+  openserp:
+    image: openserp/openserp:latest
+    ports:
+      - "8080:8080"
+    environment:
+      - API_KEY=${OPENSERP_API_KEY:-}
+      - PORT=8080
+    networks:
+      - openserp-network
+    restart: unless-stopped
+    volumes:
+      - openserp-data:/app/data
+
+networks:
+  openserp-network:
+    driver: bridge
+
+volumes:
+  openserp-data:

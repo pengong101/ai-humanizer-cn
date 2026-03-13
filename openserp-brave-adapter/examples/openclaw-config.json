@@ -1,0 +1,13 @@
+{
+  "$schema": "https://docs.openclaw.ai/config.schema.json",
+  "tools": {
+    "web": {
+      "search": {
+        "provider": "brave",
+        "baseUrl": "http://localhost:8765",
+        "apiKey": "dummy-key"
+      }
+    }
+  },
+  "_comment": "OpenSERP Brave Adapter 配置示例 - 将此配置合并到您的 ~/.openclaw/openclaw.json 中"
+}

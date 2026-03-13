@@ -1,0 +1,20 @@
+{
+  "plugins": {
+    "searxng": {
+      "enabled": true,
+      "baseUrl": "http://localhost:8081",
+      "timeout": 20000,
+      "cache": {
+        "enabled": false
+      },
+      "engines": {
+        "priority": ["bing", "google", "duckduckgo"],
+        "timeout": {
+          "bing": 15,
+          "google": 15,
+          "duckduckgo": 15
+        }
+      }
+    }
+  }
+}

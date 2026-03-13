@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "skills": {
+    "find-skills": {
+      "version": "0.1.0",
+      "installedAt": 1773199013474
+    },
+    "liang-tavily-search": {
+      "version": "1.0.1",
+      "installedAt": 1773199016438
+    },
+    "office-automation-test": {
+      "version": "1.0.0",
+      "installedAt": 1773199020391
+    },
+    "summarize": {
+      "version": "1.0.0",
+      "installedAt": 1773199022269
+    },
+    "multi-search-engine-2-0-1": {
+      "version": "1.0.0",
+      "installedAt": 1773202554203
+    },
+    "agent-browser": {
+      "version": "0.2.0",
+      "installedAt": 1773202556062
+    }
+  }
+}

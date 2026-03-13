@@ -1,0 +1,62 @@
+{
+  "containers": {
+    "xiaoma_new": {
+      "name": "OpenClaw",
+      "port": 8082,
+      "memory_limit": "2g",
+      "memory_swap": "4g",
+      "cpus": 2.0,
+      "restart_policy": "always",
+      "health_check": {
+        "cmd": "openclaw status || exit 1",
+        "interval": "60s",
+        "timeout": "10s",
+        "retries": 3
+      },
+      "volumes": [
+        "/root/.openclaw/workspace:/root/.openclaw/workspace",
+        "/root/.openclaw/data:/root/.openclaw/data"
+      ],
+      "environment": {
+        "OPENCLAW_CONFIG": "/root/.openclaw/data/config.json",
+        "TZ": "Asia/Shanghai"
+      }
+    },
+    "searxng": {
+      "name": "SearXNG",
+      "port": 8081,
+      "restart_policy": "always"
+    },
+    "clash": {
+      "name": "Clash",
+      "port": 7890,
+      "restart_policy": "always"
+    },
+    "browser": {
+      "name": "Kasm Browser",
+      "port": 56901,
+      "restart_policy": "always"
+    }
+  },
+  "thresholds": {
+    "memory_percent": 80,
+    "disk_percent": 85,
+    "cpu_percent": 90
+  },
+  "monitoring": {
+    "health_check_interval": 300,
+    "resource_check_interval": 900,
+    "max_restart_count": 5,
+    "restart_cooldown": 300
+  },
+  "alerts": {
+    "enabled": true,
+    "channel": "feishu",
+    "notify_on": ["container_down", "memory_high", "disk_high", "recover_success", "recover_failed"]
+  },
+  "cleanup": {
+    "auto_prune_images": true,
+    "prune_schedule": "0 3 * * *",
+    "keep_images_days": 7
+  }
+}

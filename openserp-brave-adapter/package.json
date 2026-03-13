@@ -1,0 +1,37 @@
+{
+  "name": "openserp-brave-adapter",
+  "version": "1.0.0",
+  "description": "Brave Search API compatible adapter for OpenSERP - enables OpenClaw and other tools to use OpenSERP without code changes",
+  "main": "index.js",
+  "bin": {
+    "openserp-adapter": "./index.js"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js",
+    "test": "node test/index.test.js",
+    "docker:build": "docker build -t openserp-brave-adapter .",
+    "docker:run": "docker run -p 8765:8765 -e OPENSERP_BASE_URL=http://host.docker.internal:8080 openserp-brave-adapter"
+  },
+  "keywords": [
+    "openserp",
+    "brave-search",
+    "search-api",
+    "adapter",
+    "openclaw",
+    "proxy"
+  ],
+  "author": "OpenClaw Team",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/openclaw/openserp-brave-adapter"
+  },
+  "bugs": {
+    "url": "https://github.com/openclaw/openserp-brave-adapter/issues"
+  },
+  "homepage": "https://github.com/openclaw/openserp-brave-adapter#readme"
+}

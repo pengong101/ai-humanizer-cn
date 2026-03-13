@@ -1,0 +1,39 @@
+{
+  "lastUpdate": "2026-03-11T08:30:00+08:00",
+  "status": "active",
+  "activeAgents": 6,
+  "activeWorkflows": 0,
+  "pendingTasks": 0,
+  "completedToday": 0,
+  "failedToday": 0,
+  "metrics": {
+    "github": {
+      "projects": 3,
+      "totalStars": 0,
+      "todayCommits": 0,
+      "repos": [
+        "openclaw-plugin-searxng",
+        "openclaw-searxng-search",
+        "openserp-searxng-adapter"
+      ]
+    },
+    "content": {
+      "articles": 0,
+      "videos": 0,
+      "totalViews": 0,
+      "platforms": {}
+    },
+    "skills": {
+      "published": 0,
+      "downloads": 0,
+      "inDevelopment": 3
+    },
+    "intelligence": {
+      "reportsGenerated": 0,
+      "insightsCollected": 0
+    }
+  },
+  "lastWorkflow": null,
+  "lastTask": null,
+  "uptime": "0h"
+}
