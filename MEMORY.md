@@ -272,6 +272,315 @@ cp -r /root/.openclaw/backups/memory-backup/memory/* \
 
 ---
 
-**最后审查：** 2026-03-12 14:40  
-**下次审查：** 2026-03-19 (每周)  
-**记忆版本：** v2.0（已恢复昨日工作）
+**最后审查：** 2026-03-16 14:05  
+**下次审查：** 2026-03-23 (每周)  
+**记忆版本：** v3.0（已重建 3 月 13-15 日记忆）
+技能迭代恢复
+
+```bash
+# 手动执行迭代
+/root/.openclaw/workspace/daily-iterate.sh radar-daily-report patch
+/root/.openclaw/workspace/daily-iterate.sh ai-humanizer-cn patch
+
+# 同步 GitHub
+/root/.openclaw/workspace/sync-github.sh
+```
+
+---
+
+## 📋 发布原则（确立于 2026-03-11）
+
+1. **无实际代码不发布** - 必须有可运行的代码
+2. **无实际问题不发布** - 必须解决真实问题
+3. **无创新性不发布** - 必须有独特价值
+4. **坚决杜绝空壳工程** - 每个技能必须经测试验证
+
+## 💡 经验教训
+
+### 配置管理
+- 配置文件必须设置只读保护 (444)
+- 修改前必须备份
+- 仅使用当前版本支持的字段
+- 不支持字段：fallback, taskOverrides, browser.provider/target/kasm
+
+### 更新流程
+- 更新前完整备份（配置 + 记忆）
+- 验证备份可用
+- 执行更新
+- 验证功能正常
+
+### 技能发布
+- GitHub Release 是可靠渠道（100% 可用）
+- ClawHub 存在 API Bug（等待修复）
+- 每个技能必须有实际价值
+
+### 备份管理 (2026-03-19)
+
+**问题：** 3 月 18 日备份异常增大到 634M（正常 2-3M）
+
+**根因分析：**
+1. Docker 镜像备份占 2.6G（/root/.openclaw/backups/docker-images/）
+2. Session 文件积累（reset/deleted 文件未清理）
+3. 备份脚本未限制包含范围
+
+**解决方案：**
+- ✅ 创建自动清理脚本（cleanup-cron.sh）
+- ✅ 设置 cron 任务（每天 04:00 执行）
+- ✅ 保留策略：14 天备份 + 至少 2 个完整备份
+- ✅ Docker 镜像备份只保留最近 1 个
+- ✅ 清理报告保留最近 5 个
+
+**清理脚本位置：**
+- `/root/.openclaw/backups/cleanup-cron.sh` (cron 执行)
+- `/root/.openclaw/backups/cleanup-backups.sh` (手动执行)
+
+**Cron 任务：**
+- 每天 04:00 自动执行
+- 生成清理报告到 backup 目录
+
+---
+
+### 搜索服务故障 (2026-03-19)
+
+**问题：** SearXNG 无法启动，搜索引擎全部超时
+
+**错误根因：**
+1. 使用 host 网络模式导致端口冲突（`Address already in use`）
+2. 容器未配置 Clash 代理，无法访问外网
+3. DNS 解析失败（searxng 容器无法解析 clash 主机名）
+
+**正确配置（已验证）：**
+```bash
+docker run -d --name searxng \
+  -p 8081:8080 \
+  -e SEARXNG_SECRET="xiaoma2026" \
+  -e HTTP_PROXY="http://clash:7890" \
+  -e HTTPS_PROXY="http://clash:7890" \
+  --network openclaw_openclaw-net \
+  searxng/searxng:latest
+```
+
+**关键步骤：**
+1. Clash 必须连接到 `openclaw_openclaw-net` 网络
+2. SearXNG 使用 bridge 网络（非 host 模式）
+3. 代理环境变量指向容器名（非 IP）
+
+**降级方案（紧急恢复）：**
+1. web_fetch - 直接抓取搜索页面（可用）
+2. Brave API - 配置 `openclaw configure --section web`
+3. multi-search-engine 技能 - 本地多引擎聚合
+
+**教训：**
+- ⚠️ 每日工作前 30 分钟检查服务状态
+- ⚠️ 有效配置必须文档化（MEMORY.md）
+- ⚠️ 不要应付，直接解决问题
+
+---
+
+**最后审查：** 2026-03-19 09:09  
+**下次审查：** 2026-03-26 (每周)  
+**记忆版本：** v3.0（已添加备份管理机制）
+
+---
+
+## 🛡️ 配置安全审查流程 (2026-03-20 新增)
+
+### 背景
+
+2026-03-20 发生多次配置错误修改，导致：
+- 添加不支持的字段（memorySearch.provider 等）
+- 配置文件大小异常波动
+- Gateway 配置被意外清空
+
+**教训：** 必须有严格的安全审查流程。
+
+---
+
+### 配置修改完整流程
+
+#### 修改前（必须执行）
+
+```bash
+# 1. 运行安全审查脚本
+/root/.openclaw/scripts/config-safety-check.sh
+
+# 2. 解锁配置（自动备份）
+chmod 644 /root/.openclaw/openclaw.json
+
+# 3. 查看当前配置（可选）
+cat /root/.openclaw/openclaw.json | python3 -m json.tool
+```
+
+#### 修改中
+
+```bash
+# 4. 修改配置
+vim /root/.openclaw/openclaw.json
+
+# 或使用 openclaw config 命令（推荐）
+openclaw config set gateway.mode local
+```
+
+#### 修改后（必须执行）
+
+```bash
+# 5. 验证 JSON 格式
+python3 -m json.tool /root/.openclaw/openclaw.json > /dev/null && echo "✅ JSON 有效" || echo "❌ JSON 无效"
+
+# 6. 运行 doctor 检查
+openclaw doctor --non-interactive
+
+# 7. 检查不支持的字段
+grep -E "fallback|taskOverrides|browser\.(provider|target|kasm)" /root/.openclaw/openclaw.json && echo "⚠️ 发现不支持字段" || echo "✅ 字段检查通过"
+
+# 8. 重启服务（如果需要）
+docker restart xiaoma-new
+
+# 9. 验证功能
+openclaw status
+openclaw memory status
+
+# 10. 重新锁定配置
+chmod 444 /root/.openclaw/openclaw.json
+```
+
+---
+
+### 安全审查脚本
+
+**位置：** `/root/.openclaw/scripts/config-safety-check.sh`
+
+**检查项目：**
+1. ✅ 文件存在性
+2. ✅ JSON 格式验证
+3. ✅ 备份检查（自动创建备份）
+4. ✅ 文件大小异常检测（检测骤降 >50%）
+5. ✅ OpenClaw doctor 健康检查
+6. ✅ 支持的字段检查
+7. ✅ 关键配置项检查
+8. ✅ 文件权限检查
+
+**使用：**
+```bash
+# 常规检查
+/root/.openclaw/scripts/config-safety-check.sh
+
+# 检查指定文件
+/root/.openclaw/scripts/config-safety-check.sh /path/to/config.json
+
+# 强制跳过（不推荐）
+/root/.openclaw/scripts/config-safety-check.sh --force
+```
+
+---
+
+### 不支持字段清单（当前版本 2026.3.13）
+
+❌ **禁止使用：**
+- `agents.defaults.fallback`
+- `agents.taskOverrides`
+- `browser.provider`
+- `browser.target`
+- `browser.kasm`
+
+✅ **支持：**
+- `agents.defaults.model.primary`
+- `agents.defaults.models.*`
+- `models.providers.*`
+- `channels.*`
+- `gateway.*`
+- `plugins.*`
+- `commands.*`
+
+---
+
+### 配置审计日志
+
+**位置：** `/root/.openclaw/logs/config-audit.jsonl`
+
+**监控字段：**
+- `suspicious` - 可疑操作标记（如文件大小骤降）
+- `previousBytes` / `nextBytes` - 配置大小变化
+- `argv` - 修改配置的命令
+
+**查看最近审计记录：**
+```bash
+tail -5 /root/.openclaw/logs/config-audit.jsonl | python3 -m json.tool
+```
+
+---
+
+### 备份策略
+
+**备份位置：** `/root/.openclaw/config-backups/`
+
+**保留策略：**
+- 每次修改前自动备份
+- 保留最近 14 天的备份
+- 至少保留 2 个完整备份
+
+**恢复配置：**
+```bash
+# 查看备份
+ls -lt /root/.openclaw/config-backups/*.json | head -10
+
+# 恢复最新备份
+LATEST=$(ls -t /root/.openclaw/config-backups/*.json | head -1)
+cp "$LATEST" /root/.openclaw/openclaw.json
+python3 -m json.tool /root/.openclaw/openclaw.json > /dev/null  # 验证
+docker restart xiaoma-new  # 重启
+```
+
+---
+
+### 紧急恢复流程
+
+```bash
+# 1. 停止容器
+docker stop xiaoma_new
+
+# 2. 解锁配置
+chmod 644 /root/.openclaw/openclaw.json
+
+# 3. 恢复备份
+LATEST=$(ls -t /root/.openclaw/config-backups/*.json | head -1)
+cp "$LATEST" /root/.openclaw/openclaw.json
+
+# 4. 验证
+python3 -m json.tool /root/.openclaw/openclaw.json > /dev/null
+
+# 5. 重启
+docker start xiaoma_new
+
+# 6. 重新锁定
+chmod 444 /root/.openclaw/openclaw.json
+```
+
+---
+
+### 质量审查（发布内容）
+
+发布技能/文档到 GitHub 前必须检查：
+
+**代码审查：**
+- [ ] 代码是否有实际功能（非空壳）
+- [ ] 是否经过测试验证
+- [ ] 是否有依赖问题
+- [ ] 是否有敏感信息（API key 等）
+
+**文档审查：**
+- [ ] README 是否完整
+- [ ] 使用示例是否清晰
+- [ ] 版本信息是否正确
+- [ ] 许可证是否声明
+
+**发布审查：**
+- [ ] 是否解决真实问题
+- [ ] 是否有创新性
+- [ ] 是否符合发布原则
+
+---
+
+**审查流程建立时间：** 2026-03-20 10:18  
+**责任人：** 小马 🐴  
+**下次审查：** 2026-03-27
