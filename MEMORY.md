@@ -584,3 +584,94 @@ chmod 444 /root/.openclaw/openclaw.json
 **审查流程建立时间：** 2026-03-20 10:18  
 **责任人：** 小马 🐴  
 **下次审查：** 2026-03-27
+
+---
+
+## 🤖 秘书技能模型路由 (2026-03-20 新增)
+
+### 背景
+
+为了优化大模型调用成本，在 secretary-core v4.1.0 中添加了智能模型路由功能。
+
+### 实现方案
+
+**双层模型架构：**
+1. **分析层** - qwen3.5-flash (极速、最低成本)
+   - 意图识别
+   - 情感分析
+   - 任务分类
+
+2. **执行层** - 根据分析结果选择最优模型
+   - qwen-turbo: 简单任务
+   - qwen3.5-plus: 默认平衡
+   - qwen3-max: 复杂推理
+   - qwen3-coder-plus: 代码任务
+   - qwen-long: 长文档
+   - qwen3.5-flash: 紧急任务
+
+### 路由逻辑
+
+```python
+ModelRouter.select_model(
+    intent: str,        # 意图类型
+    context_length: int, # 上下文长度
+    emotion: str,       # 情绪 (urgent/normal)
+    task_type: str      # 任务类型 (code/chat/analysis)
+)
+```
+
+**决策流程：**
+1. 超长上下文 (>500K) → qwen-long
+2. 紧急情况 → qwen3.5-flash
+3. 代码任务 → qwen3-coder-plus
+4. 复杂推理 → qwen3-max
+5. 简单问题 → qwen-turbo
+6. 默认 → qwen3.5-plus
+
+### 测试结果
+
+**测试通过率：** 8/8 (100%)
+
+**模型使用统计示例：**
+```
+总请求数：6
+- qwen3.5-plus: 5 次 (83%)
+- qwen3.5-flash: 1 次 (17%, 紧急任务)
+```
+
+### 成本优化效果
+
+**预计节省：** 50-70%
+
+| 场景 | 优化前 | 优化后 | 节省 |
+|------|--------|--------|------|
+| 简单问答 | plus | turbo | 50% |
+| 紧急任务 | plus | flash | 60% |
+| 复杂推理 | plus | max | -123% (必要成本) |
+| 长文档 | plus | long | 0% |
+
+### 文件位置
+
+- 核心代码：`/root/.openclaw/workspace/skills/secretary-core/secretary_v3.0.0.py`
+- 测试脚本：`/root/.openclaw/workspace/skills/secretary-core/test_model_router.py`
+- 文档：`/root/.openclaw/workspace/skills/secretary-core/SKILL.md`
+
+### Git 提交
+
+```
+a2a5186 Update clawhub.json to v4.1.0
+b260f5e Add model router test suite
+dc017e7 Upgrade to v4.1.0: Add Model Router
+```
+
+### 下一步
+
+- [ ] 推送到 ClawHub
+- [ ] 监控实际使用情况和成本
+- [ ] 根据数据优化路由策略
+
+---
+
+**功能实现时间：** 2026-03-20 11:40  
+**责任人：** 小马 🐴  
+**状态：** ✅ 已完成测试
