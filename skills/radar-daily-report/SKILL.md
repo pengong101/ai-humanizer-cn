@@ -2,9 +2,12 @@
 name: radar-daily-report
 description: 毫米波雷达技术日报自动生成。每日 09:00 搜集全网行业动态、学术论文、专利信息，AI 总结生成技术日报。
 license: MIT
+version: 2.4.0
+author: pengong101
+updated: 2026-03-25
 ---
 
-# Radar Daily Report - 毫米波雷达技术日报
+# Radar Daily Report - 毫米波雷达技术日报 v2.4
 
 自动生成毫米波雷达技术领域日报。
 
@@ -231,6 +234,5 @@ grep CRON /var/log/syslog
 ---
 
 **维护者：** 小马 🐴  
-**版本：** v1.0.1  
-**最后更新：** 2026-03-12  
-**下次更新：** 2026-03-13（每日迭代）
+**版本：** v2.4.0  
+**最后更新：** 2026-03-25

@@ -1,0 +1,17 @@
+{
+  "name": "radar-daily-report",
+  "version": "2.4.0",
+  "description": "毫米波雷达技术日报自动生成",
+  "author": "pengong101",
+  "license": "MIT",
+  "homepage": "https://github.com/pengong101",
+  "tags": ["radar", "mmwave", "automotive", "daily-report"],
+  "features": [
+    "自动搜集行业动态/学术论文/专利信息",
+    "AI 智能总结",
+    "多引擎搜索（百度/必应/Google）",
+    "时效性过滤（24小时/14天）",
+    "跨日去重"
+  ],
+  "minOpenClawVersion": "2026.3.0"
+}
