@@ -1,10 +1,10 @@
 ---
 name: ai-humanizer-cn
-description: 中文 AI 文本优化技能，支持多种 AI 模型（OpenAI/Anthropic/阿里），去除 AI 痕迹，保持专业性。
+description: 中文 AI 文本优化技能，支持多种 AI 模型（OpenAI/Anthropic/阿里），去除 AI 痕迹，保持专业性。支持拟人化强度调节。
 license: MIT
-version: 5.0.0
+version: 5.1.0
 author: pengong101
-updated: 2026-03-18
+updated: 2026-03-23
 metadata:
   requires:
     api_keys:
@@ -16,14 +16,97 @@ metadata:
     - 风格调节
     - 批量处理
     - 代码优化
+    - 拟人化强度控制 (NEW)
+    - 专业性保护 (NEW)
 ---
 
-# AI Humanizer CN v5.0.0
+# AI Humanizer CN v5.1.0
 
-**版本：** 5.0.0  
-**更新日期：** 2026-03-18  
+**版本：** 5.1.0  
+**更新日期：** 2026-03-23  
 **作者：** pengong101  
 **许可：** MIT
+
+---
+
+## 🆕 v5.1.0 新增功能
+
+### 1. 拟人化强度控制
+
+**新增参数：** `--intensity` 或 `intensity`
+
+**支持级别：**
+- `low` - 低强度（5-10% 口语化，适合技术文档）
+- `medium` - 中强度（15-20% 口语化，适合科普文章）⭐ **默认**
+- `high` - 高强度（25-35% 口语化，适合社交媒体）
+- `auto` - **自适应**（根据 QC 评分自动调整）⭐ **v5.1.0 新增**
+
+**自适应模式（auto）：**
+```python
+# 根据 QC 评分自动调整拟人化强度
+qc_score = 8.5  # QC 评分
+if qc_score >= 9.0:
+    intensity = "low"    # 高质量文章，最小改动
+elif qc_score >= 8.0:
+    intensity = "medium" # 良好文章，适度优化
+elif qc_score >= 7.0:
+    intensity = "high"   # 中等文章，明显改进
+else:
+    intensity = "high"   # 低质量文章，大幅修改
+```
+
+**使用示例：**
+```bash
+# 命令行
+humanizer-cn --input input.txt --intensity medium
+humanizer-cn --input input.txt --intensity auto  # 自适应
+
+# Python
+h = Humanizer(intensity="medium")
+h = Humanizer(intensity="auto", qc_score=8.5)  # 自适应
+```
+
+### 2. 反问句密度控制
+
+**自动限制：** 每 500 字≤3 个反问句
+
+**配置选项：**
+```json
+{
+  "rhetorical_question_density": 3,  // 每 500 字最大反问句数
+  "rhetorical_question_check": true  // 启用检查
+}
+```
+
+### 3. 文章类型感知
+
+**支持的类型：**
+- `tech` - 技术文章（减少情感词汇，保持严谨）
+- `science` - 科普文章（平衡专业性与可读性）⭐ **推荐**
+- `social` - 社交媒体（增加情感表达和互动）
+- `academic` - 学术论文（最小拟人化）
+
+**自动适配：**
+```python
+# 根据类型自动调整参数
+h = Humanizer(article_type="science")
+# 自动设置：intensity="medium", protect_terms=True
+```
+
+### 4. 专业性保护开关
+
+**新增参数：** `--protect-terms` 或 `protect_terms=True`
+
+**保护内容：**
+- ✅ 核心数据（数字、百分比、统计）
+- ✅ 专业术语（科技术语、人名、地名）
+- ✅ 引用内容（专家引语、文献引用）
+- ✅ 时间信息（日期、年份）
+
+**使用示例：**
+```bash
+humanizer-cn --input input.txt --protect-terms true
+```
 
 ---
 
@@ -166,11 +249,15 @@ export HUMANIZER_LOG_LEVEL="INFO"
 {
   "model": "openai/gpt-4",
   "style": "formal",
+  "intensity": "medium",
+  "article_type": "science",
+  "protect_terms": true,
   "max_length": 2000,
   "temperature": 0.7,
   "batch_size": 10,
   "threads": 4,
-  "output_format": "text"
+  "output_format": "text",
+  "rhetorical_question_density": 3
 }
 ```
 
@@ -276,6 +363,7 @@ openclaw skills install ai-humanizer-cn
 
 | 版本 | 日期 | 主要更新 |
 |------|------|---------|
+| **v5.1.0** | 2026-03-23 | 拟人化强度控制/反问句密度控制/文章类型感知/专业性保护 ⭐ |
 | **v5.0.0** | 2026-03-18 | 多模型支持/批量处理/代码优化/测试覆盖 |
 | v4.0.0 | 2026-03-18 | 代码优化/表格格式化/PPT 大纲 |
 | v3.1.0 | 2026-03-17 | 8 维风格向量/多语言支持 |
