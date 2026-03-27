@@ -1,0 +1,41 @@
+{
+  "tasks": [
+    {
+      "task": "测试任务",
+      "success": true,
+      "duration": 120.5,
+      "notes": "测试完成",
+      "timestamp": "2026-03-18T22:36:42.584236"
+    }
+  ],
+  "reflections": [
+    {
+      "date": "2026-03-18",
+      "tasks_completed": 10,
+      "successes": [
+        "成功 1",
+        "成功 2"
+      ],
+      "failures": [
+        "失败 1"
+      ],
+      "lessons_learned": [
+        "教训 1"
+      ],
+      "improvements": [
+        "从失败中学习：",
+        "  - 失败 1",
+        "今日教训：",
+        "  - 教训 1"
+      ],
+      "timestamp": "2026-03-18T22:36:42.584591"
+    }
+  ],
+  "improvements": [],
+  "stats": {
+    "total_tasks": 1,
+    "successful_tasks": 1,
+    "failed_tasks": 0,
+    "avg_duration": 120.5
+  }
+}
