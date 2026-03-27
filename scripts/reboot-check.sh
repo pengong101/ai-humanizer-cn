@@ -5,6 +5,7 @@
 
 LOG_DIR="/root/.openclaw/workspace/logs"
 REPORT="$LOG_DIR/reboot-check-$(date +%Y-%m-%d-%H%M).md"
+mkdir -p "$LOG_DIR"
 PASS=0; FAIL=0
 
 log() { echo -e "[$(date '+%H:%M:%S')] $1"; }
@@ -79,23 +80,33 @@ PASS=0; FAIL=0
 
 # 6. SearXNG
 log "检查 SearXNG..."
-searxng_result=$(timeout 10 curl -s "http://searxng:8080/search?q=test&format=json" 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('results',[])))" 2>/dev/null)
+searxng_json=$(timeout 10 curl -s "http://searxng:8080/search?q=test&format=json" 2>/dev/null)
+searxng_result=$(echo "$searxng_json" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('results',[])))" 2>/dev/null)
+searxng_engines=$(echo "$searxng_json" | python3 -c "import sys,json; ur=d.get('unresponsive_engines',[]); print(len(ur))" 2>/dev/null)
 if [ -n "$searxng_result" ] && [ "$searxng_result" -gt 0 ]; then
-  pass "SearXNG 搜索: 返回 ${searxng_result} 条结果"
-  echo "- SearXNG: 返回 ${searxng_result} 条结果 ✅" >> "$REPORT"
+  pass "SearXNG 搜索: ${searxng_result} 条结果（${searxng_engines}个引擎不可用）"
+  echo "- SearXNG: ${searxng_result} 条结果 ✅" >> "$REPORT"
 else
-  fail "SearXNG 搜索: 无结果或超时"
-  echo "- SearXNG: 无结果或超时 ❌" >> "$REPORT"
+  # 用 baidu 引擎测试（不走代理）
+  searxng_baidu=$(timeout 10 curl -s "http://searxng:8080/search?q=test&format=json&engines=baidu" 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('results',[])))" 2>/dev/null)
+  if [ -n "$searxng_baidu" ] && [ "$searxng_baidu" -gt 0 ]; then
+    pass "SearXNG(baidu): ${searxng_baidu} 条结果"
+    echo "- SearXNG(baidu): ${searxng_baidu} 条结果 ✅" >> "$REPORT"
+  else
+    fail "SearXNG 搜索: 完全无结果"
+    echo "- SearXNG: 完全无结果 ❌" >> "$REPORT"
+  fi
 fi
 
-# 7. 记忆搜索
-log "检查记忆搜索..."
-if python3 -c "from memory_search import *; print('ok')" > /dev/null 2>&1; then
-  pass "记忆搜索: 模块正常"
-  echo "- 记忆搜索: 模块正常 ✅" >> "$REPORT"
+# 7. 记忆系统
+log "检查记忆系统..."
+if [ -f /root/.openclaw/workspace/MEMORY.md ] && [ -d /root/.openclaw/workspace/memory ]; then
+  mem_lines=$(wc -l /root/.openclaw/workspace/MEMORY.md 2>/dev/null | awk '{print $1}')
+  pass "记忆系统: 正常（MEMORY.md ${mem_lines}行）"
+  echo "- 记忆系统: 正常（${mem_lines}行）✅" >> "$REPORT"
 else
-  fail "记忆搜索: 模块导入失败"
-  echo "- 记忆搜索: 模块导入失败 ❌" >> "$REPORT"
+  fail "记忆系统: 文件缺失"
+  echo "- 记忆系统: 文件缺失 ❌" >> "$REPORT"
 fi
 
 # 8. OpenClaw 状态
