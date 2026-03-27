@@ -55,10 +55,11 @@ ContentAgent 生成/选图片
     ↓
 ContentAgent 拟人化 + 格式适配
     ↓
-ReviewAgent QC（四维审核）
+ReviewAgent QC（四维审核，最多3轮迭代）
     ↓
 通过 → 发布
-不通过 → ContentAgent 修改（循环）
+不通过 → 按ReviewAgent反馈修改（最多3轮）
+3轮仍不通过 → 降级发布（附QC报告）
 ```
 
 ## 触发方式

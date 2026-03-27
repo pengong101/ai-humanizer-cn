@@ -24,8 +24,17 @@
 ### 工作流 1：内容创作（日报/科普/总结）
 
 ```
-触发：06:00 cron（日报）、用户指令（文章）
+触发：用户指令 或 06:00 cron（日报）
     ↓
+【选题阶段】（非日报任务跳过）
+ResearchAgent 多引擎搜集最新科技热点（3-5个候选）
+    ↓
+ResearchAgent 输出选题清单（含：标题 + 热度理由 + 关键词）
+    ↓
+08:00 CEO 汇报 → 用户审批（✅选标题 / ❌换题）
+用户确认后 → 进入创作
+    ↓
+【创作阶段】
 Coordinator 分解任务
     ↓
 ResearchAgent 多引擎搜集情报（主题 + 关键词）
@@ -36,13 +45,23 @@ ContentAgent 生成/选取配图
     ↓
 ContentAgent AI拟人化 + mdnice格式适配
     ↓
+【质量迭代循环】（最多3轮）
+    ↓
 ReviewAgent 四维QC（合规≥9 / 文本≥8 / 图片≥8 / 格式≥8，总分≥35）
     ↓
-通过 → PublisherAgent 发布
-不通过 → ContentAgent 修改（循环）
+┌─ 通过（≥35分）→ PublisherAgent 发布
+└─ 不通过（<35分）→ ContentAgent 修改
+        ↑
+        │ 第1轮反馈：具体问题列表
+        │ 第2轮反馈：重点修改项
+        │ 第3轮反馈：最后通牒
+        ↓
+    ContentAgent 按反馈修改 → 重新提交QC
+    （3轮仍不通过 → ReviewAgent 降级发布，附修改说明）
 ```
 
-**参与：** Coordinator → ResearchAgent → ContentAgent → ReviewAgent → PublisherAgent
+**参与：** ResearchAgent → ContentAgent → ReviewAgent ↔ ContentAgent（迭代）→ PublisherAgent
+**日报特殊：** 06:00 直接 ResearchAgent → ContentAgent → ReviewAgent，不走选题
 
 ---
 
