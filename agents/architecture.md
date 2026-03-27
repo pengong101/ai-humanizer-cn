@@ -144,6 +144,52 @@ Docker 容器状态（xiaoma-new / searxng / clash）
 cron 服务状态
 ```
 
+## 三.2、系统重启后完整检测
+
+系统重启后（docker restart / 宿主机 reboot），OpsAgent 必须执行完整功能验证：
+
+### 基础层检查
+```
+- exec 响应时间（< 3s 为健康）
+- Docker 容器状态（xiaoma-new / searxng / clash / browser）
+- cron 服务状态
+- 内存可用（< 1GB 告警）
+- 磁盘使用率（> 80% 告警）
+```
+
+### 功能层检查（逐项验证）
+| 功能 | 验证方法 | 健康标准 |
+|------|---------|---------|
+| **SearXNG 搜索** | `curl http://searxng:8080/search?q=test&format=json` | 返回 JSON 且有 results |
+| **记忆搜索** | `python3 -c "from memory_search import *"` | 导入无报错 |
+| **OpenClaw 状态** | `openclaw status` | 输出正常 |
+| **Webhook/消息** | Feishu 消息发送测试 | 消息到达 |
+| **cron 任务** | `openclaw cron list` | 任务列表正常 |
+| **Git 操作** | `git -C /root/.openclaw/workspace log --oneline -1` | 有输出 |
+| **代理服务** | `curl --proxy http://clash:7890 https://www.baidu.com` | HTTP 200 |
+
+### 重启后检测流程
+```
+系统重启完成
+    ↓
+OpsAgent 执行基础层检查
+    ↓
+发现异常？
+    ├─ 是 → 自动修复 → 重新验证
+    └─ 否 → 继续功能层检查
+    ↓
+OpsAgent 执行功能层检查（逐项）
+    ↓
+发现功能异常？
+    ├─ 是 → 记录到 logs/reboot-YYYY-MM-DD.md → 告警
+    └─ 否 → 记录"全部功能正常" → 正常
+```
+
+### 重启检测触发方式
+- **自动触发**：系统启动完成事件（heartbeat 检测到 docker restart）
+- **手动触发**：用户说"重启后检测"
+- **cron 触发**：每天首次 heartbeat 时执行快速检测
+
 ---
 
 ## 四、智能体 × 工作流 矩阵
