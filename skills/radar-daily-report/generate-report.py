@@ -1,16 +1,47 @@
 #!/usr/bin/env python3
 """
-Millimeter Wave Radar Daily Report Generator v2.0
+Millimeter Wave Radar Daily Report Generator v2.4
 Automatically collect global data and generate technical daily reports
 Author: pengong101
 License: MIT
+
+Changelog v2.4:
+- Fixed patent category noise (weather radar, consumer programs)
+- Added category-specific negative keywords
+- Added cross-category deduplication
+- Enhanced 5G/telecom filtering (Qualcomm, GSMA, etc.)
+- Academic category: extra filtering for 5G deployment content
+- Patents category: heavy penalty for weather/climate radar
+
+Changelog v2.3:
+- Optimized keywords for automotive radar focus
+- Added content quality scoring system
+- Filter out 5G/telecom irrelevant content
+- Added title blacklist filter
+- Positive keywords: 车载，汽车，automotive, 77GHz, ADAS, etc.
+- Negative keywords: 5G, 通信，telecom, 基站，WiFi, etc.
+- Title blacklist: printf, 机场，如何评价，etc.
+
+Changelog v2.2:
+- Added multi-strategy date parsing (API/URL/content)
+- Added date-based filtering (MIN_YEAR, MAX_AGE_DAYS)
+- Results sorted by recency
+- Better date extraction from Chinese content
+
+Changelog v2.1:
+- Removed Brave engine (no API subscription)
+- Added exact match quotes for keywords
+- Excluded low-quality content (百度知道)
+- Added time range filter (last 7 days)
+- Optimized engine selection (baidu, bing, google)
 """
 
 import requests
 import json
 from datetime import datetime, timedelta
 import os
-from typing import Dict, List, Optional
+import re
+from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, asdict
 import hashlib
 import time
@@ -18,10 +49,131 @@ import time
 # Configuration
 OUTPUT_DIR = os.environ.get("OUTPUT_DIR", "/root/.openclaw/workspace/radar-reports")
 # 使用容器网络访问（SearXNG 和 OpenClaw 在同一网络）
-# 使用容器间网络访问（SearXNG 和 OpenClaw 在同一网络）
 SEARXNG_URL = os.environ.get("SEARXNG_URL", "http://searxng:8080")
+# 搜索引擎配置：排除 brave（无 API），优先专业引擎
+SEARCH_ENGINES = ["bing", "sogou", "duckduckgo"]  # bing/sogou 直连，duckduckgo via mihomo 代理
+SEARCH_PARAMS = {"engines": ",".join(SEARCH_ENGINES)}
 CACHE_DIR = os.environ.get("CACHE_DIR", "/tmp/radar-cache")
 CACHE_EXPIRY = int(os.environ.get("CACHE_EXPIRY", "3600"))  # 1 hour default
+# 搜索优化配置
+SEARCH_TIME_RANGE = "week"  # ⭐ 搜索最近 7 天内容（扩大覆盖，提高质量下限）
+EXCLUDE_SITES = ["百度知道", "百度文库"]  # 排除低质量内容
+# 日期过滤配置（严格时效性）
+MIN_YEAR = 2025  # 只保留 2025 年及以后的内容
+PREFER_DAYS = 3  # 优先保留最近 3 天的内容
+MAX_AGE_DAYS = 14  # 最大允许 14 天（超过则过滤）
+
+# 时效性评分配置
+RECENCY_BONUS = {
+    7: 5,      # 7 天内 +5 分
+    14: 3,     # 14 天内 +3 分
+    30: 2,     # 30 天内 +2 分
+    90: 1,     # 90 天内 +1 分
+    365: 0,    # 1 年内 0 分
+}
+
+# 内容质量评分配置
+POSITIVE_KEYWORDS = [
+    '车载', '汽车', 'automotive', 'vehicle', '77GHz', '24GHz',
+    '智能驾驶', '自动驾驶', 'ADAS', 'AEB', '盲区监测',
+    '传感器', 'sensor', '雷达模块', 'radar module',
+    '造车', '车企', 'Tesla', '华为', '小鹏', '理想', '蔚来',
+    '毫米波', 'mmWave', 'radar', '雷达', '探测', 'detection',
+    '4D 成像', '4D imaging', 'MIMO', '波束成形', 'beamforming',
+    '天线', 'antenna', '芯片', 'chip', 'PCB', '信号处理',
+    # 新增英文关键词
+    'FMCW', 'phased array', 'beamforming', 'MIMO', 'point cloud',
+    'Tier1', 'supplier', 'Bosch', 'Continental', 'Valeo',
+    'autonomous driving', 'self-driving', 'L2', 'L3', 'L4',
+    'object detection', 'range detection', 'velocity', 'Doppler',
+    # ⭐ 科技属性关键词（新增）
+    '技术', 'technology', '研发', 'R&D', '创新', 'innovation',
+    '突破', 'breakthrough', '论文', 'paper', '专利', 'patent',
+    '算法', 'algorithm', '系统', 'system', '架构', 'architecture',
+    '测试', 'test', '实验', 'experiment', '数据', 'data',
+    '性能', 'performance', '效率', 'efficiency', '精度', 'accuracy'
+]
+
+# ⭐ 财经新闻特征词（用于检测）
+FINANCE_KEYWORDS = [
+    '股票', 'stock', '股价', '跌停', '涨停', '成交额',
+    '主力净流入', '主力净流出', '换手率', '总市值',
+    '跌%', '涨%', '停牌', '复牌', 'IPO', '上市',
+    '财报', '季报', '年报', '分红', '配股', '股吧',
+    'finance.sina', 'finance.qq', '东方财富', '同花顺',
+    '财联社', '证券时报', '中国证券报', '新浪财经'
+]
+
+# ⭐ 科技属性最低要求（科技词数量）
+MIN_TECH_KEYWORDS = 2  # 至少包含 2 个科技关键词
+NEGATIVE_KEYWORDS = [
+    '通信', 'telecom', '基站', 'base station',
+    '手机', 'mobile phone', 'WiFi', '无线传输',
+    '路由器', 'network', 'coverage', 'spectrum',
+    '机场', 'airport', '小红书', '评价', '如何评价',
+    'Qualcomm', 'GSMA', 'operator', 'small cell',
+    'weather', 'climate', 'rain', 'snow', 'UK', 'Netweather',
+    'consumer program', 'consumenten',
+    'avrotros', 'radar.avrotros', 'uitzendingen', 'tip de redactie',
+    'avrotros.nl', 'consumentenprogramma',
+    # ⭐ 财经新闻过滤
+    '股票', 'stock', '股价', '跌停', '涨停', '成交额',
+    '主力净流入', '主力净流出', '换手率', '总市值',
+    '跌%', '涨%', '停牌', '复牌', 'IPO', '上市',
+    '财报', '季报', '年报', '分红', '配股',
+    'finance.sina', 'finance.qq', '东方财富', '同花顺',
+    '财联社', '证券时报', '中国证券报',
+    # ⭐ 5G 通信过滤（除非与雷达直接相关）
+    '5G 热点', '5G 日报', '5G 周报', '5G 月报',
+    '5G 基站', '5G network', '5G deployment'
+]
+
+# ⭐ 5G 白名单（当 5G 与雷达同时出现时保留）
+FIVEG_WHITELIST = [
+    '5G 毫米波雷达', '5G+ 雷达', '5G V2X 雷达',
+    '5G automotive radar', '5G mmWave radar'
+]
+QUALITY_THRESHOLD = -6  # 质量分低于此值则过滤（放宽到 -6，增加条目数量）
+
+# 学术分类专属负关键词（额外过滤 5G 通信内容）
+ACADEMIC_EXTRA_NEGATIVE = [
+    'Qualcomm', 'GSMA', '5G deployment', 'network operator',
+    'small cell', 'base station', 'telecom', 'spectrum auction',
+    '5G mmWave', 'mmWave 5G', '5G small cells'
+]
+
+# 学术分类专属正关键词（必须包含至少一个，确保是雷达相关）
+ACADEMIC_REQUIRED_POSITIVE = [
+    'radar', '雷达', 'automotive', '车载', '汽车', 'vehicle',
+    'ADAS', '自动驾驶', 'autonomous', 'detection', '探测',
+    'MIMO', 'phased array', 'beamforming', '天线', '毫米波', 'mmWave'
+]
+
+# 专利分类专属负关键词（额外过滤天气/消费类 radar + 5G）
+PATENTS_EXTRA_NEGATIVE = [
+    'weather radar', 'climate', 'rain', 'snow', 'precipitation',
+    'consumer program', 'AVROTROS', 'Nederland', 'UK weather',
+    'Netweather', 'live radar', 'rainfall',
+    'avrotros.nl', 'tip de redactie', 'uitzendingen', 'consumenten',
+    '5G', 'mmWave 5G', '5G mmWave', 'small cells'
+]
+
+# 专利分类专属正关键词（加分项，非必需）
+PATENTS_BONUS_POSITIVE = [
+    '专利', 'patent', '天线', 'antenna', '芯片', 'chip',
+    '发明', 'invention', '知识产权', 'intellectual property',
+    'USPTO', 'CNIPA', 'WIPO', '专利局', '结构', 'design',
+    '电路', 'circuit', '封装', 'package', '制造', 'manufacturing'
+]
+
+# 标题过滤黑名单（直接排除）
+TITLE_BLACKLIST = [
+    'printf', 'c 语言', '编程', 'code', 'programming',
+    '机场等级', '4D 机场', '4C 机场', '4E 机场', '4F 机场',
+    '如何评价', '怎么样', '好不好', '小红书',
+    '%4d', '%d', 'format', '格式化',
+    '4DX 电影', '3D 电影', 'movie', 'film'
+]
 
 @dataclass
 class SearchResult:
@@ -61,37 +213,56 @@ class RadarReportGenerator:
             'User-Agent': 'Mozilla/5.0 (compatible; RadarReportBot/2.0; +https://github.com/pengong101/radar-daily-report)'
         })
         
-        # Search keywords by category
+        # Yesterday report file for deduplication
+        self.yesterday_file = None
+        
+        # Search keywords by category (使用精确匹配 + 排除低质内容 + 聚焦车载/传感应用)
         self.keywords = {
             'industry': [
-                "毫米波雷达 2026",
-                "mmWave radar market 2026",
-                "77GHz radar automotive",
-                "4D imaging radar mass production",
-                "radar sensor technology"
+                '"毫米波雷达" 车载 技术 -百度知道',
+                '"77GHz radar" automotive -百度知道',
+                '"4D imaging radar" 汽车 -百度知道',
+                '"毫米波雷达" 智能驾驶 -百度知道',
+                '"automotive radar" ADAS -百度知道',
+                # 新增英文长尾词
+                '"mmWave radar" automotive technology',
+                '"car radar" sensor technology',
+                '"vehicle radar" L2 L3 L4'
             ],
             'academic': [
-                "mmWave radar signal processing",
-                "MIMO radar beamforming",
-                "radar target detection algorithm",
-                "4D radar point cloud",
-                "radar neural network"
+                '"毫米波雷达" 信号处理 算法 车载 -百度知道 -5G -Qualcomm',
+                '"mmWave radar" automotive signal processing -5G -Qualcomm -GSMA',
+                '"MIMO radar" 车载 波束成形 天线 -百度知道',
+                '"4D imaging radar" automotive point cloud -5G',
+                '"radar target detection" algorithm automotive ADAS -5G',
+                # 新增英文长尾词
+                '"automotive radar" signal processing algorithm -5G -communication',
+                '"mmWave" FMCW radar automotive detection -5G',
+                '"phased array" radar automotive beamforming -5G'
             ],
             'patents': [
-                "毫米波雷达 专利",
-                "mmWave radar patent",
-                "radar antenna design patent",
-                "radar signal processing patent"
+                '"毫米波雷达" 专利 天线 车载 -百度知道 -weather -consumer',
+                '"mmWave radar" patent antenna automotive -weather',
+                '"77GHz" 雷达 专利 芯片 车载 -百度知道 -weather -5G',
+                '"radar sensor" patent package automotive -weather -climate',
+                '"毫米波雷达" 发明专利 汽车 -百度知道 -5G',
+                # 新增英文长尾词
+                '"automotive radar" patent antenna design -5G -weather',
+                '"mmWave" radar chip patent automotive -5G'
             ],
             'products': [
-                "mmWave radar module 2026",
-                "77GHz radar sensor new product",
-                "automotive radar supplier",
-                "radar chip manufacturer"
+                '"毫米波雷达" 模块 车载 供应商 2026 -百度知道',
+                '"77GHz radar" sensor automotive supplier -百度知道',
+                '"automotive radar" module 2026 price -百度知道 -5G',
+                '"radar chip" 车规级 供应商 -百度知道 -5G',
+                # 新增英文长尾词
+                '"mmWave radar module" automotive supplier 2026 -5G',
+                '"77GHz radar sensor" car ADAS price -5G',
+                '"automotive radar" Tier1 supplier Bosch Continental -5G'
             ]
         }
     
-    def search(self, query: str, engines: List[str] = None, max_results: int = 10) -> List[SearchResult]:
+    def search(self, query: str, engines: List[str] = None, max_results: int = 10, time_range: str = None) -> List[SearchResult]:
         """
         Search using SearXNG
         
@@ -99,42 +270,57 @@ class RadarReportGenerator:
             query: Search query
             engines: List of search engines to use
             max_results: Maximum results to return
+            time_range: Time range filter (default: SEARCH_TIME_RANGE)
+                        SearXNG format: 'day', 'week', 'month', 'year'
             
         Returns:
             List of SearchResult objects
         """
+        if time_range is None:
+            time_range = SEARCH_TIME_RANGE
+        
         # Check cache first
-        cache_key = hashlib.md5(f"{query}:{json.dumps(engines)}".encode()).hexdigest()
+        cache_key = hashlib.md5(f"{query}:{json.dumps(engines)}:{time_range}".encode()).hexdigest()
         if self.cache_enabled:
             cached = self._get_cache(cache_key)
             if cached:
                 return cached
         
-        # Perform search
+        # Perform search with time filter
         params = {
             'q': query,
             'format': 'json',
-            'pageno': 1
+            'pageno': 1,
+            'time_range': time_range  # SearXNG format: day/week/month/year
         }
         if engines:
             params['engines'] = ','.join(engines)
         
         try:
-            response = self.session.get(f"{self.searxng_url}/search", params=params, timeout=10)
+            response = self.session.get(f"{self.searxng_url}/search", params=params, timeout=(10, 60))
             response.raise_for_status()
             data = response.json()
             
             results = []
-            for item in data.get('results', [])[:max_results]:
+            for item in data.get('results', [])[:max_results * 2]:  # 获取更多内容用于过滤
+                # 过滤掉百度知道的低质量内容
+                title = item.get('title', '')
+                url = item.get('url', '')
+                if '百度知道' in title or 'zhidao.baidu.com' in url:
+                    continue
+                
                 result = SearchResult(
-                    title=item.get('title', ''),
-                    url=item.get('url', ''),
+                    title=title,
+                    url=url,
                     content=item.get('content', '')[:200],
                     source=item.get('engine', 'unknown'),
                     published_date=item.get('publishedDate', None),
                     score=item.get('score', 0.0)
                 )
                 results.append(result)
+                
+                if len(results) >= max_results:
+                    break
             
             # Cache results
             if self.cache_enabled:
@@ -165,19 +351,67 @@ class RadarReportGenerator:
         total_items = 0
         
         # Search each category
+        # First pass: collect all results with category info
+        all_results_by_category = {}
         for category, keywords in self.keywords.items():
             print(f"  Searching {category}...")
             results = []
             
-            for keyword in keywords[:3]:  # Top 3 keywords per category
-                search_results = self.search(keyword, max_results=5)
+            for keyword in keywords[:6]:  # Top 6 keywords per category (increased for better coverage)
+                search_results = self.search(keyword, engines=SEARCH_ENGINES, max_results=15, time_range=SEARCH_TIME_RANGE)
                 results.extend(search_results)
-                time.sleep(0.5)  # Rate limiting
+                time.sleep(0.2)  # Rate limiting (reduced for speed)
             
-            # Remove duplicates
+            # Remove duplicates within category
             unique_results = self._deduplicate(results)
-            sections[category] = unique_results[:10]  # Top 10 per category
+            
+            # Filter by date (remove old content)
+            date_filtered = self._filter_by_date(unique_results)
+            
+            # Filter by quality (remove irrelevant content like 5G telecom)
+            quality_filtered = self._filter_by_quality(date_filtered, category)
+            
+            all_results_by_category[category] = quality_filtered
+            
+            print(f"    Found {len(results)} → {len(unique_results)} unique → {len(date_filtered)} date OK → {len(quality_filtered)} quality OK")
+        
+        # Second pass: cross-category deduplication + yesterday dedup
+        all_seen_urls = set()
+        
+        # Load yesterday's URLs to avoid repetition
+        yesterday_urls = self._load_yesterday_urls()
+        all_seen_urls.update(yesterday_urls)
+        print(f"  📋 昨日已发布：{len(yesterday_urls)} 条（自动过滤）")
+        
+        MIN_PER_CATEGORY = 3  # Ensure at least 3 items per category if available
+        MAX_PER_CATEGORY = 10  # 每类最多 10 条（扩量，提高覆盖面）
+        
+        for category in ['industry', 'academic', 'patents', 'products']:  # Fixed order
+            if category not in all_results_by_category:
+                continue
+            
+            unique_across_categories = []
+            for result in all_results_by_category[category]:
+                if result.url not in all_seen_urls:
+                    all_seen_urls.add(result.url)
+                    unique_across_categories.append(result)
+                
+                # Stop if we have enough for this category
+                if len(unique_across_categories) >= MAX_PER_CATEGORY:
+                    break
+            
+            # If we don't have enough, relax the dedup slightly (allow some overlap)
+            if len(unique_across_categories) < MIN_PER_CATEGORY:
+                for result in all_results_by_category[category]:
+                    if len(unique_across_categories) >= MIN_PER_CATEGORY:
+                        break
+                    if result not in unique_across_categories:
+                        unique_across_categories.append(result)
+            
+            sections[category] = unique_across_categories[:MAX_PER_CATEGORY]
             total_items += len(sections[category])
+        
+        print(f"  Cross-category dedup: {len(all_seen_urls)} unique URLs total")
         
         # Generate summary
         summary = self._generate_summary(sections, date)
@@ -239,6 +473,376 @@ class RadarReportGenerator:
                 seen_urls.add(result.url)
                 unique.append(result)
         return unique
+    
+    def _load_yesterday_urls(self) -> set:
+        """
+        Load URLs from yesterday's report to avoid repetition
+        
+        Returns:
+            Set of URLs from yesterday's report
+        """
+        from datetime import date, timedelta
+        import re
+        
+        yesterday = date.today() - timedelta(days=1)
+        yesterday_file = os.path.join(OUTPUT_DIR, f"radar-daily-{yesterday}.md")
+        
+        if not os.path.exists(yesterday_file):
+            print(f"  ⚠️  昨日报纸不存在：{yesterday_file}")
+            return set()
+        
+        urls = set()
+        url_pattern = re.compile(r'\]\((https?://[^\)]+)\)')
+        
+        try:
+            with open(yesterday_file, 'r', encoding='utf-8') as f:
+                for line in f:
+                    matches = url_pattern.findall(line)
+                    for url in matches:
+                        urls.add(url)
+            
+            self.yesterday_file = yesterday_file
+            print(f"  ✅ 加载昨日报纸：{yesterday_file} ({len(urls)} 条)")
+        except Exception as e:
+            print(f"  ❌ 加载失败：{str(e)[:50]}")
+        
+        return urls
+    
+    def _calculate_recency_score(self, result: SearchResult) -> int:
+        """
+        Calculate recency bonus score
+        
+        Args:
+            result: SearchResult object
+            
+        Returns:
+            Recency bonus score
+        """
+        age_days = getattr(result, '_age_days', 9999)
+        for threshold, bonus in sorted(RECENCY_BONUS.items()):
+            if age_days <= threshold:
+                return bonus
+        return 0
+    
+    def _is_finance_news(self, result: SearchResult) -> bool:
+        """
+        Check if content is pure finance news (stock price, trading volume, etc.)
+        
+        Args:
+            result: SearchResult object
+            
+        Returns:
+            True if it's finance news, False otherwise
+        """
+        text = f"{result.title} {result.content} {result.url}".lower()
+        
+        # Count finance keywords
+        finance_count = sum(1 for kw in FINANCE_KEYWORDS if kw.lower() in text)
+        
+        # If contains 2+ finance keywords, likely finance news (降低阈值)
+        if finance_count >= 2:
+            return True
+        
+        # Check URL domain (finance.sina, finance.qq, etc.)
+        finance_domains = ['finance.sina', 'finance.qq', 'eastmoney', '10jqka',
+                          'cls.cn', 'stcn.com', 'cs.com.cn', 'caifuhao']
+        if any(domain in result.url.lower() for domain in finance_domains):
+            return True
+        
+        # Check title for stock patterns (e.g., "XX 股跌%", "XX 涨停")
+        title = result.title.lower()
+        if ('跌' in title and '%' in title) or ('涨停' in title) or ('跌停' in title):
+            return True
+        
+        # Check for "主力净流入/流出" pattern
+        if '主力净流入' in text or '主力净流出' in text or '换手率' in text or '总市值' in text:
+            return True
+        
+        # Check for IPO/上市 related
+        if ('冲击' in title and '股' in title) or ('IPO' in title) or ('上市' in title) or ('招股书' in text) or ('港交所' in text):
+            return True
+        
+        return False
+    
+    def _is_5g_only(self, result: SearchResult) -> bool:
+        """
+        Check if content is only about 5G telecom (not radar-related)
+        
+        Args:
+            result: SearchResult object
+            
+        Returns:
+            True if it's pure 5G telecom, False if radar-related
+        """
+        text = f"{result.title} {result.content} {result.url}".lower()
+        title = result.title.lower()
+        
+        # Check if has 5G keywords
+        has_5g = '5g' in text or '5g' in title
+        
+        if not has_5g:
+            return False
+        
+        # Check if 5G is combined with radar (whitelist)
+        for whitelist in FIVEG_WHITELIST:
+            if whitelist.lower() in text:
+                return False  # Keep it, it's radar-related
+        
+        # Check if title is "5G 热点" type (daily report)
+        if '5g 热点' in title or '5g 日报' in title or '5g 周报' in title:
+            return True  # Filter 5G daily reports
+        
+        # If has 5G but no radar keywords, filter it
+        has_radar = any(kw in text for kw in ['radar', '雷达', '毫米波', 'mmwave'])
+        
+        if has_5g and not has_radar:
+            return True  # Filter pure 5G content
+        
+        # Check if 5G base station is main topic
+        if '5g 基站' in text and 'radar' not in text and '雷达' not in text:
+            return True  # Filter 5G base station content
+        
+        return False
+    
+    def _has_tech_value(self, result: SearchResult) -> bool:
+        """
+        Check if content has technological value (not just finance/market news)
+        
+        Args:
+            result: SearchResult object
+            
+        Returns:
+            True if it has tech value, False otherwise
+        """
+        text = f"{result.title} {result.content} {result.url}".lower()
+        
+        # Count tech keywords
+        tech_count = sum(1 for kw in POSITIVE_KEYWORDS if kw.lower() in text)
+        
+        # Must have at least MIN_TECH_KEYWORDS tech keywords
+        if tech_count < MIN_TECH_KEYWORDS:
+            return False
+        
+        # Check for major breakthrough indicators
+        breakthrough_keywords = ['突破', 'breakthrough', '首发', 'first',
+                                '新一代', 'next generation', '量产', 'mass production',
+                                '发布', 'release', '推出', 'launch']
+        has_breakthrough = any(kw in text for kw in breakthrough_keywords)
+        
+        # If has breakthrough keywords, relax tech requirement
+        if has_breakthrough and tech_count >= 1:
+            return True
+        
+        return True
+    
+    def _calculate_quality_score(self, result: SearchResult, category: str = '') -> int:
+        """
+        Calculate content quality score based on keywords
+        
+        Args:
+            result: SearchResult object
+            category: Category name for category-specific filtering
+            
+        Returns:
+            Quality score (higher = more relevant to automotive radar)
+        """
+        text = f"{result.title} {result.content} {result.url}".lower()
+        
+        # ⭐ 财经新闻直接过滤（除非有重大技术突破）
+        if self._is_finance_news(result):
+            # Check if it has major breakthrough
+            if not self._has_tech_value(result):
+                return -999  # Direct filter
+        
+        # ⭐ 纯 5G 通信内容过滤（除非与雷达相关）
+        if self._is_5g_only(result):
+            return -999  # Direct filter
+        
+        score = 0
+        
+        # Count positive keywords
+        for keyword in POSITIVE_KEYWORDS:
+            if keyword.lower() in text:
+                score += 1
+        
+        # Count negative keywords (base)
+        for keyword in NEGATIVE_KEYWORDS:
+            if keyword.lower() in text:
+                score -= 2  # Heavier penalty for negative keywords
+        
+        # Category-specific negative keywords
+        if category == 'academic':
+            for keyword in ACADEMIC_EXTRA_NEGATIVE:
+                if keyword.lower() in text:
+                    score -= 3  # Extra penalty for academic category
+            # Check if academic category has required radar/automotive keywords
+            has_academic_keyword = any(kw.lower() in text for kw in ACADEMIC_REQUIRED_POSITIVE)
+            if not has_academic_keyword:
+                score -= 5  # Moderate penalty if no explicit radar/automotive content
+        elif category == 'patents':
+            for keyword in PATENTS_EXTRA_NEGATIVE:
+                if keyword.lower() in text:
+                    score -= 5  # Heavy penalty for patent category (weather radar is common noise)
+            # Bonus for patent-related keywords
+            for keyword in PATENTS_BONUS_POSITIVE:
+                if keyword.lower() in text:
+                    score += 1  # Bonus for patent content
+        
+        # Add recency bonus
+        recency_bonus = self._calculate_recency_score(result)
+        score += recency_bonus
+        
+        return score
+    
+    def _filter_by_quality(self, results: List[SearchResult], category: str = '') -> List[SearchResult]:
+        """
+        Filter and sort results by quality score
+        
+        Args:
+            results: List of SearchResult objects
+            category: Category name for category-specific filtering
+            
+        Returns:
+            Filtered and sorted list
+        """
+        # Calculate scores with category-specific weighting
+        for result in results:
+            result._quality_score = self._calculate_quality_score(result, category)
+        
+        # Filter out low-quality results
+        filtered = [r for r in results if r._quality_score >= QUALITY_THRESHOLD]
+        
+        # Additional filter: remove obvious non-automotive content by title blacklist
+        further_filtered = []
+        for result in filtered:
+            title_lower = result.title.lower()
+            url_lower = result.url.lower()
+            
+            # Skip if URL contains avrotros.nl (Dutch consumer program)
+            if 'avrotros.nl' in url_lower:
+                continue
+            
+            # Skip if title matches blacklist (use exact match for better precision)
+            skip = False
+            for black in TITLE_BLACKLIST:
+                if black.lower() in title_lower:
+                    skip = True
+                    break
+            if skip:
+                continue
+            # Also check if title is about radar/automotive
+            # Require at least one positive keyword in title or content
+            has_radar_keyword = any(kw.lower() in title_lower for kw in ['雷达', 'radar', '毫米波', 'mmwave', '77ghz', '24ghz', '车载', '汽车'])
+            if not has_radar_keyword:
+                # Check content as fallback
+                content_lower = result.content.lower()
+                has_radar_keyword = any(kw.lower() in content_lower for kw in ['雷达', 'radar', '毫米波', 'mmwave', '77ghz', '24ghz'])
+            if has_radar_keyword:
+                further_filtered.append(result)
+        
+        # Sort by quality score (descending), then by date (recent first)
+        further_filtered.sort(key=lambda x: (getattr(x, '_quality_score', 0), -getattr(x, '_age_days', 0)), reverse=True)
+        
+        return further_filtered
+    
+    def _parse_date(self, result: SearchResult) -> Optional[datetime]:
+        """
+        Parse date from search result (multiple strategies)
+        
+        Args:
+            result: SearchResult object
+            
+        Returns:
+            datetime object or None
+        """
+        # Strategy 1: Use publishedDate from API
+        if result.published_date:
+            try:
+                # Handle various date formats
+                date_str = result.published_date[:10]  # Extract YYYY-MM-DD
+                return datetime.strptime(date_str, '%Y-%m-%d')
+            except:
+                pass
+        
+        # Strategy 2: Extract year from URL
+        year_match = re.search(r'(20\d{2})', result.url)
+        if year_match:
+            year = int(year_match.group(1))
+            if year >= MIN_YEAR:
+                # Try to extract month/day from URL
+                date_match = re.search(r'(\d{4})[-/](\d{2})[-/](\d{2})', result.url)
+                if date_match:
+                    try:
+                        return datetime.strptime(f"{date_match.group(1)}-{date_match.group(2)}-{date_match.group(3)}", '%Y-%m-%d')
+                    except:
+                        pass
+                # Fallback to Jan 1 of that year
+                return datetime(year, 1, 1)
+        
+        # Strategy 3: Extract date from content
+        content = result.content + result.title
+        date_patterns = [
+            r'(20\d{2}) 年 (\d{1,2}) 月 (\d{1,2}) 日',  # Chinese format
+            r'(\d{4})-(\d{2})-(\d{2})',  # ISO format
+            r'(\d{1,2})/(\d{1,2})/(20\d{2})',  # US format
+        ]
+        for pattern in date_patterns:
+            match = re.search(pattern, content)
+            if match:
+                try:
+                    groups = match.groups()
+                    if '年' in pattern:  # Chinese format
+                        return datetime(int(groups[0]), int(groups[1]), int(groups[2]))
+                    elif '/' in pattern:  # US format
+                        return datetime(int(groups[2]), int(groups[0]), int(groups[1]))
+                    else:  # ISO format
+                        return datetime(int(groups[0]), int(groups[1]), int(groups[2]))
+                except:
+                    pass
+        
+        return None
+    
+    def _filter_by_date(self, results: List[SearchResult]) -> List[SearchResult]:
+        """
+        Filter results by date
+        
+        Args:
+            results: List of SearchResult objects
+            
+        Returns:
+            Filtered list (recent items first)
+        """
+        now = datetime.now()
+        filtered = []
+        
+        for result in results:
+            pub_date = self._parse_date(result)
+            
+            if pub_date is None:
+                # No date found - keep but mark as old
+                result._age_days = 9999
+                if MIN_YEAR <= 2025:  # If MIN_YEAR is set, still keep undated
+                    filtered.append(result)
+                continue
+            
+            age_days = (now - pub_date).days
+            result._age_days = age_days  # Store for sorting
+            result._parsed_date = pub_date
+            
+            # Filter out too old content
+            if age_days > MAX_AGE_DAYS:
+                continue
+            
+            # Filter out content before MIN_YEAR
+            if pub_date.year < MIN_YEAR:
+                continue
+            
+            filtered.append(result)
+        
+        # Sort by date (recent first)
+        filtered.sort(key=lambda x: getattr(x, '_age_days', 9999))
+        
+        return filtered
     
     def _generate_summary(self, sections: Dict[str, List[SearchResult]], date: str) -> str:
         """Generate report summary"""

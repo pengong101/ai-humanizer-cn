@@ -2,6 +2,10 @@
 """
 AI Humanizer CN v3.1 - Ultimate Version
 Multi-language text optimization with adaptive context awareness
+
+Author: pengong101
+License: MIT
+Version: 3.1.0
 """
 
 import re
