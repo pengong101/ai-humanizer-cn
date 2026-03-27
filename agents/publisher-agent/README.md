@@ -1,30 +1,23 @@
-# 发布智能体 (Publisher Agent)
+# PublisherAgent（发布智能体）
 
-**版本：** v0.1  
-**职责：** 多渠道发布、格式适配、状态追踪
-
----
-
-## 一、核心职责
-
-- 📤 多渠道发布（飞书/微信/知识库）
-- 📐 格式适配（各渠道格式要求）
-- 📊 发布状态追踪
-- 🔄 发布失败重试
+**版本：** v1.0  
+**日期：** 2026-03-28  
+**核心：** 多渠道发布 + 格式适配 + 状态追踪
 
 ---
 
-## 二、API
+## 核心职责
 
-```python
-POST /api/v1/publisher/publish
-{
-  "content": "发布内容",
-  "channels": ["feishu", "wechat", "knowledge_base"],
-  "schedule": "2026-03-23T09:00:00Z"
-}
-```
+- Skill 发布（GitHub Release + ClawHub）
+- 文章发布（公众号 / 知乎 / 小红书）
+- 发布状态追踪与记录
 
----
+## 触发方式
 
-**状态：** 框架已创建，待实现核心模块
+- ReviewAgent 审核通过后（自动）
+- 用户手动触发发布
+
+## 相关文件
+
+- `agents/publisher-agent/agent.py`
+- `skills/github-skill/`
