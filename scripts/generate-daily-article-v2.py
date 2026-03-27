@@ -12,7 +12,28 @@ import os
 from datetime import datetime
 
 # API 配置
-API_KEY = "sk-sp-a38e2667f4504d2e8e7588872c39059e"
+API_KEY = os.environ.get("DASHSCOPE_API_KEY", "")
+if not API_KEY:
+    # 读取本地配置文件
+    cfg = os.path.expanduser("~/.openclaw/.api_keys")
+    if os.path.exists(cfg):
+        with open(cfg) as f:
+            for line in f:
+                if line.startswith("qwen:"):
+                    API_KEY = line.split("=",1)[1].strip()
+                    break
+
+import logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(message)s",
+    handlers=[
+        logging.FileHandler("/root/.openclaw/workspace/logs/article-cron.log"),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
 BASE_URL = "https://coding.dashscope.aliyuncs.com/v1"
 
 # 文章主题库
@@ -59,6 +80,7 @@ def generate_full_article(topic: dict, date_str: str) -> str:
         article = f"# {topic['title']}\n\n**日期:** {date_str}\n**分类:** {topic['category']}\n**关键词:** {', '.join(topic['keywords'])}\n\n---\n\n{content}\n\n---\n*自动生成于 {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}*\n"
         return article
     except Exception as e:
+        logger.error(f"API 调用失败: {e}")
         return f"# {topic['title']}\n\n**日期:** {date_str}\n**分类:** {topic['category']}\n\n⚠️ API 调用失败：{e}\n"
 
 def save_article(article: str, date_str: str, output_dir: str = "/root/.openclaw/workspace/articles"):
