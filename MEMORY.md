@@ -1361,3 +1361,34 @@ ResearchAgent 双重角色：
 - **可用渠道**：全网搜索(Jina/Exa)、网页读取、RSS、微信公众号、YouTube、GitHub
 - **使用**：`mcporter call exa.web_search_exa` / `curl https://r.jina.ai/<URL>`
 - **技能文件**：`/root/.openclaw/skills/agent-reach/SKILL.md`
+
+---
+
+## 智能体架构 v3.0（2026-04-03）
+
+### 核心改进：协作迭代模式
+
+**问题：** v2.0 星型结构 main 成为瓶颈，Agent 间缺乏直接协作
+
+**解决：** Research ↔ 执行 Agent 直接协作，main 只布置任务和汇报
+
+### 四大工作流（v3.0）
+
+| 工作流 | 协作模式 | 审核 |
+|--------|---------|------|
+| 内容创作 | Research ↔ Content 直接协作 | 自评分<7时审核 |
+| 技能研发 | Research ↔ Code 直接协作 | 必须审核 |
+| 雷达日报 | Research → Content 直接生成 | 简化流程 |
+| 运维故障 | Ops ↔ Research 协作 | 自动处理为主 |
+
+### 关键文件
+- 架构文档：`AGENTS-ARCHITECTURE.md`（v3.0）
+- 工作流详细设计：`WORKFLOWS-V3.md`
+- 内容创作v3.0：`WORKFLOW-CONTENT-V3.md`
+- 各Agent SOUL.md：更新为v3.0协作模式
+
+### 交接材料标准
+- 素材包（Research → Content）
+- 技术调研包（Research → Code）
+- 作品提交（Content → Review）
+- 审核反馈（Review → Agent）
