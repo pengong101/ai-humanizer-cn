@@ -15,7 +15,30 @@ import argparse
 import json
 import sys
 import time
+import signal
 import urllib.parse
+
+BROWSER_TIMEOUT = 90  # seconds - force kill if browser hangs
+
+
+class BrowserTimeoutError(Exception):
+    pass
+
+
+def _timeout_handler(signum, frame):
+    raise BrowserTimeoutError(f"Browser operation timed out after {BROWSER_TIMEOUT}s")
+
+
+def _with_timeout(func, *args, **kwargs):
+    """Run func with SIGALRM timeout. Restores alarm on any exit."""
+    old_handler = signal.signal(signal.SIGALRM, _timeout_handler)
+    signal.alarm(BROWSER_TIMEOUT)
+    try:
+        return func(*args, **kwargs)
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old_handler)
+
 
 try:
     from playwright.sync_api import sync_playwright
@@ -104,77 +127,87 @@ def search_images(query: str, site: str = "bing_images", max_results: int = 5) -
     
     chromium_path = DEFAULT_CHROMIUM
     
+    browser = None
     try:
-        with sync_playwright() as pw:
-            browser = pw.chromium.launch(
-                headless=True,
-                executable_path=chromium_path,
-                args=[
-                    "--no-sandbox",
-                    "--disable-setuid-sandbox",
-                    "--disable-dev-shm-usage",
-                    "--disable-blink-features=AutomationControlled",
-                ],
-                proxy={"server": PROXY} if PROXY else None,
-            )
-            
-            context = browser.new_context(
-                viewport={"width": 1280, "height": 900},
-                user_agent=(
-                    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
-                    "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                ),
-            )
-            page = context.new_page()
-            
-            print(f"[ImageSearch] Navigating to {url}", file=sys.stderr)
-            page.goto(url, wait_until="domcontentloaded", timeout=30000)
-            page.wait_for_timeout(config["page_load_wait"] * 1000)
-            
-            # Scroll to load more images
-            for _ in range(config["scroll"]):
-                page.evaluate("window.scrollBy(0, 600)")
-                page.wait_for_timeout(1500)
-            
-            # Extract image links + nested img srcs
-            links = []
-            img_srcs = []
-            try:
-                elements = page.query_selector_all(config["selector"])
-                for el in elements[:max_results + 10]:
-                    href = el.get_attribute(config["attr"])
-                    img = el.query_selector("img")
-                    img_src = img.get_attribute("src") if img else None
-                    if href:
-                        full_url = href if href.startswith("http") else f"https://cn.bing.com{href}"
-                        if full_url not in links:
-                            links.append(full_url)
-                    if img_src and img_src.startswith("http") and img_src not in img_srcs:
-                        img_srcs.append(img_src)
-            except Exception as e:
-                results["error"] = f"Selector error: {e}"
-            
-            # For Bing: visit detail page to get original (full-size) source URL
-            if site == "bing_images" and links:
-                original_urls = []
-                for detail_url in links[:max_results]:
-                    resolved = _resolve_bing_thumbnail_to_original(PROXY, chromium_path, detail_url, timeout=15)
-                    if resolved:
-                        original_urls.append(resolved)
-                    else:
-                        # Fallback: use thumbnail URL
-                        img_id = detail_url.split("id=")[1].split("&")[0] if "id=" in detail_url else ""
-                        img_match = [s for s in img_srcs if img_id in s] if img_id else []
-                        original_urls.append(img_match[0] if img_match else detail_url)
-                results["results"] = original_urls
-                results["has_original_urls"] = any(u for u in original_urls if "/th/" not in u)
-            else:
-                results["results"] = links[:max_results]
-            
-            browser.close()
-            
+        def _do_search():
+            nonlocal browser
+            with sync_playwright() as pw:
+                browser = pw.chromium.launch(
+                    headless=True,
+                    executable_path=chromium_path,
+                    args=[
+                        "--no-sandbox",
+                        "--disable-setuid-sandbox",
+                        "--disable-dev-shm-usage",
+                        "--disable-blink-features=AutomationControlled",
+                    ],
+                    proxy={"server": PROXY} if PROXY else None,
+                )
+                
+                context = browser.new_context(
+                    viewport={"width": 1280, "height": 900},
+                    user_agent=(
+                        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                        "(KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                    ),
+                )
+                page = context.new_page()
+                
+                print(f"[ImageSearch] Navigating to {url}", file=sys.stderr)
+                page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                page.wait_for_timeout(config["page_load_wait"] * 1000)
+                
+                # Scroll to load more images
+                for _ in range(config["scroll"]):
+                    page.evaluate("window.scrollBy(0, 600)")
+                    page.wait_for_timeout(1500)
+                
+                # Extract image links + nested img srcs
+                links = []
+                img_srcs = []
+                try:
+                    elements = page.query_selector_all(config["selector"])
+                    for el in elements[:max_results + 10]:
+                        href = el.get_attribute(config["attr"])
+                        img = el.query_selector("img")
+                        img_src = img.get_attribute("src") if img else None
+                        if href:
+                            full_url = href if href.startswith("http") else f"https://cn.bing.com{href}"
+                            if full_url not in links:
+                                links.append(full_url)
+                        if img_src and img_src.startswith("http") and img_src not in img_srcs:
+                            img_srcs.append(img_src)
+                except Exception as e:
+                    results["error"] = f"Selector error: {e}"
+                
+                # For Bing: resolve thumbnails to original URLs
+                if site == "bing_images" and links:
+                    original_urls = []
+                    for detail_url in links[:max_results]:
+                        resolved = _resolve_bing_thumbnail_to_original(PROXY, chromium_path, detail_url, timeout=15)
+                        if resolved:
+                            original_urls.append(resolved)
+                        else:
+                            img_id = detail_url.split("id=")[1].split("&")[0] if "id=" in detail_url else ""
+                            img_match = [s for s in img_srcs if img_id in s] if img_id else []
+                            original_urls.append(img_match[0] if img_match else detail_url)
+                    results["results"] = original_urls
+                    results["has_original_urls"] = any(u for u in original_urls if "/th/" not in u)
+                else:
+                    results["results"] = links[:max_results]
+        
+        _with_timeout(_do_search)
+        
+    except BrowserTimeoutError as e:
+        results["error"] = str(e)
     except Exception as e:
         results["error"] = str(e)
+    finally:
+        if browser:
+            try:
+                browser.close()
+            except Exception:
+                pass  # Best effort
     
     return results
 
