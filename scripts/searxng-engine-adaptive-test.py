@@ -192,6 +192,15 @@ def main():
     log("🚀 SearXNG 自适应引擎测试开始")
     log("=" * 50)
     
+    # Step 0: 检查 mihomo 是否可用（快速失败，不卡死）
+    log("📡 Step 0: 检查 mihomo 健康状态...")
+    if not check_mihomo_alive():
+        log("⚠️  mihomo 未运行或无法连接，跳过本次引擎测试（避免卡死）")
+        log("💡 提示: 若 mihomo 长期故障，搜索引擎将使用直连引擎（baidu）")
+        log("=" * 50)
+        return
+    log("✅ mihomo 在线")
+    
     # Step 1: 测试代理
     log("📡 Step 1: 测试代理连通性...")
     proxy_test = test_engine_via_proxy("https://www.google.com")
@@ -199,7 +208,10 @@ def main():
     if proxy_available:
         log(f"✅ 代理可用 (延迟: {proxy_test['latency']}ms)")
     else:
-        log(f"❌ 代理不可用: {proxy_test}")
+        log(f"⚠️  代理不可用（mihomo 可能已故障），跳过引擎测试: {proxy_test.get('reason', proxy_test)}")
+        log("💡 提示: 下次健康检查将重新评估，或手动重启 mihomo")
+        log("=" * 50)
+        return
     
     # Step 2: 测试所有引擎
     log("\n📡 Step 2: 通过 SearXNG API 测试引擎...")
